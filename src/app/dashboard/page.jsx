@@ -1,60 +1,53 @@
-// src/app/dashboard/page.jsx
 'use client'
-
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { createBrowserClient } from '@supabase/ssr'
+import { motion } from 'framer-motion'
+import { useSupabase } from '@/hooks/useSupabase'
+import { RecipeCard } from '@/components/RecipeCard'
+import { RecipeForm } from '@/components/RecipeForm'
+import { Button } from "@/components/ui/button"
+import { Bot, LogOut } from "lucide-react"
 
 export default function Dashboard() {
   const [user, setUser] = useState(null)
-  const [prompt, setPrompt] = useState('')
   const [recipes, setRecipes] = useState([])
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const supabase = useSupabase()
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  )
-
+  // Fetch initial data
   useEffect(() => {
     const checkUserAndGetRecipes = async () => {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        router.push('/login')
-        return
-      }
+      if (!session) { router.push('/login'); return }
       setUser(session.user)
       const { data } = await supabase.from('recipes').select('*').order('created_at', { ascending: false })
       if (data) setRecipes(data)
     }
     checkUserAndGetRecipes()
-  }, [])
+  }, [router, supabase])
 
+  // Listen for real-time changes
   useEffect(() => {
     if (!user) return
-    const channel = supabase
-      .channel('realtime recipes')
+    const channel = supabase.channel('realtime recipes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'recipes' }, async () => {
         const { data } = await supabase.from('recipes').select('*').order('created_at', { ascending: false })
         if (data) setRecipes(data)
-      })
-      .subscribe()
+      }).subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [user])
+  }, [user, supabase])
 
-  const handleGenerate = async (e) => {
-    e.preventDefault()
-    if (!prompt.trim() || loading) return
+  // Handle recipe generation
+  const handleGenerate = useCallback(async (prompt) => {
     setLoading(true)
     await fetch('/api/generate-recipe', {
       method: 'POST',
       body: JSON.stringify({ prompt }),
       headers: { 'Content-Type': 'application/json' },
     })
-    setPrompt('')
     setLoading(false)
-  }
+  }, [])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -62,56 +55,46 @@ export default function Dashboard() {
   }
 
   if (!user) {
-    return <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">Loading...</div>
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 p-4 text-white sm:p-8">
-      <div className="mx-auto max-w-4xl">
+    <div className="min-h-screen p-4 sm:p-8">
+      <video autoPlay muted loop className="background-video">
+        <source src="/dashboard-video.mp4" type="video/mp4" />
+      </video>
+
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
+        className="mx-auto max-w-2xl"
+      >
         <header className="mb-8 flex items-center justify-between">
-          <h1 className="text-3xl font-bold">AI Recipe Generator</h1>
-          <button onClick={handleLogout} className="rounded-md bg-gray-700 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-600">
+          <div className="flex items-center gap-3">
+            <Bot className="h-8 w-8 text-emerald-400" />
+            <h1 className="text-3xl font-bold tracking-tighter">AI Recipe Generator</h1>
+          </div>
+          <Button onClick={handleLogout} variant="outline" size="sm">
+            <LogOut className="mr-2 h-4 w-4" />
             Logout
-          </button>
+          </Button>
         </header>
-        <div className="mb-8 rounded-lg bg-gray-800 p-6 shadow-lg">
-          <form onSubmit={handleGenerate}>
-            <label htmlFor="prompt" className="mb-2 block text-sm font-medium text-gray-300">
-              What ingredients do you have?
-            </label>
-            <textarea
-              id="prompt"
-              rows="3"
-              className="w-full rounded-md bg-gray-200 p-3 text-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g., chicken breast, rice, broccoli, soy sauce"
-            />
-            <button type="submit" disabled={loading} className="mt-4 w-full rounded-md bg-indigo-600 px-6 py-2 font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto">
-              {loading ? 'Requesting...' : '✨ Generate Recipe'}
-            </button>
-          </form>
-        </div>
-        <div className="space-y-6">
-          <h2 className="text-2xl font-bold">Your Generated Recipes</h2>
-          {recipes.length === 0 && <p className="text-center text-gray-500">No recipes generated yet.</p>}
-          {recipes.map((recipe) => (
-            <div key={recipe.id} className="rounded-lg bg-gray-800 p-6 shadow-lg">
-              {recipe.status === 'processing' ? (
-                <div className="flex items-center space-x-3">
-                  <div className="h-5 w-5 animate-spin rounded-full border-b-2 border-indigo-400"></div>
-                  <span className="text-gray-400">AI is thinking about: "{recipe.prompt}"</span>
-                </div>
-              ) : (
-                <div>
-                  <h3 className="text-xl font-bold text-indigo-400">{recipe.title || 'Untitled'}</h3>
-                  <p className="mt-2 whitespace-pre-wrap text-gray-300">{recipe.instructions}</p>
-                </div>
-              )}
+
+        <RecipeForm onGenerate={handleGenerate} isLoading={loading} />
+
+        <div className="space-y-4">
+          <h2 className="text-2xl font-bold tracking-tighter">Your Generated Recipes</h2>
+          {recipes.length === 0 && (
+            <div className="text-center py-10 rounded-lg border-2 border-dashed border-emerald-900/50 bg-black/20 backdrop-blur-sm">
+              <p className="text-muted-foreground">No recipes generated yet.</p>
             </div>
+          )}
+          {recipes.map((recipe, index) => (
+            <RecipeCard key={recipe.id} recipe={recipe} index={index} />
           ))}
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }
