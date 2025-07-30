@@ -29,19 +29,27 @@ export async function POST(request) {
     .single()
 
   if (error) {
+    console.error('Supabase insert error:', error);
     return new NextResponse(JSON.stringify({ error: 'Failed to create recipe' }), { status: 500 })
   }
 
+  // This section is updated to log the result
   const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL;
   if (n8nWebhookUrl) {
-    fetch(n8nWebhookUrl, {
+    console.log("Calling n8n webhook:", n8nWebhookUrl);
+    try {
+      const n8nResponse = await fetch(n8nWebhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recipeId: data.id, prompt })
-    }).catch(err => console.error("N8N Webhook Call Error:", err));
+      });
+      console.log("n8n response status:", n8nResponse.status);
+    } catch (e) {
+      console.error("CRITICAL: Error calling n8n webhook:", e);
+    }
+  } else {
+    console.log("N8N_WEBHOOK_URL not set.");
   }
 
   return new NextResponse(JSON.stringify({ recipeId: data.id }), { status: 202 })
 }
-
-{ }
